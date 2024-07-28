@@ -1,0 +1,150 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Runtime.InteropServices;
+using System.Diagnostics;
+
+namespace AccessPrivilege
+{
+    internal class Program
+    {
+
+  public enum TOKEN_INFORMATION_CLASS {
+          TokenUser = 1,
+          TokenGroups,
+          TokenPrivileges,
+          TokenOwner,
+          TokenPrimaryGroup,
+          TokenDefaultDacl,
+          TokenSource,
+          TokenType,
+          TokenImpersonationLevel,
+          TokenStatistics,
+          TokenRestrictedSids,
+          TokenSessionId,
+          TokenGroupsAndPrivileges,
+          TokenSessionReference,
+          TokenSandBoxInert,
+          TokenAuditPolicy,
+          TokenOrigin,
+          TokenElevationType,
+          TokenLinkedToken,
+          TokenElevation,
+          TokenHasRestrictions,
+          TokenAccessInformation,
+          TokenVirtualizationAllowed,
+          TokenVirtualizationEnabled,
+          TokenIntegrityLevel,
+          TokenUIAccess,
+          TokenMandatoryPolicy,
+          TokenLogonSid,
+          TokenIsAppContainer,
+          TokenCapabilities,
+          TokenAppContainerSid,
+          TokenAppContainerNumber,
+          TokenUserClaimAttributes,
+          TokenDeviceClaimAttributes,
+          TokenRestrictedUserClaimAttributes,
+          TokenRestrictedDeviceClaimAttributes,
+          TokenDeviceGroups,
+          TokenRestrictedDeviceGroups,
+          TokenSecurityAttributes,
+          TokenIsRestricted,
+          TokenProcessTrustLevel,
+          TokenPrivateNameSpace,
+          TokenSingletonAttributes,
+          TokenBnoIsolation,
+          TokenChildProcessFlags,
+          TokenIsLessPrivilegedAppContainer,
+          TokenIsSandboxed,
+          TokenIsAppSilo,
+          TokenLoggingInformation,
+          MaxTokenInfoClass
+    }
+
+        // Structure to hold the TOKEN_ELEVATION is done or not ?
+        [StructLayout(LayoutKind.Sequential)]
+        public struct TOKEN_ELEVATION
+        {
+            public UInt32 TokenIsElevated;
+        }
+
+        //Use these for DesiredAccess
+        public const UInt32 STANDARD_RIGHTS_REQUIRED = 0x000F0000;
+        public const UInt32 STANDARD_RIGHTS_READ = 0x00020000;
+        public const UInt32 TOKEN_ASSIGN_PRIMARY = 0x0001;
+        public const UInt32 TOKEN_DUPLICATE = 0x0002;
+        public const UInt32 TOKEN_IMPERSONATE = 0x0004;
+        public const UInt32 TOKEN_QUERY = 0x0008;
+        public const UInt32 TOKEN_QUERY_SOURCE = 0x0010;
+        public const UInt32 TOKEN_ADJUST_PRIVILEGES = 0x0020;
+        public const UInt32 TOKEN_ADJUST_GROUPS = 0x0040;
+        public const UInt32 TOKEN_ADJUST_DEFAULT = 0x0080;
+        public const UInt32 TOKEN_ADJUST_SESSIONID = 0x0100;
+        public const UInt32 TOKEN_READ = (STANDARD_RIGHTS_READ | TOKEN_QUERY);
+        public const UInt32 TOKEN_ALL_ACCESS = (STANDARD_RIGHTS_REQUIRED | TOKEN_ASSIGN_PRIMARY |
+            TOKEN_DUPLICATE | TOKEN_IMPERSONATE | TOKEN_QUERY | TOKEN_QUERY_SOURCE |
+            TOKEN_ADJUST_PRIVILEGES | TOKEN_ADJUST_GROUPS | TOKEN_ADJUST_DEFAULT |
+            TOKEN_ADJUST_SESSIONID);
+
+
+        //DLL Import the DLL for the capture the Process Token
+        //which is then needed in the GetTokenInformation to see is it elevated or not
+        [DllImport("Advapi32.dll", SetLastError = true)]
+        public static extern bool OpenProcessToken(
+            IntPtr processHandle,  // ptr to hold the process Handle
+            uint DesiredAccess, // WHat desired access you need to , here we would be using Token_query
+            ref IntPtr TokenHandle // once the process is opened the Token is saved in TokenHandle 
+            );
+
+
+        //DLL import the dll and then call the Get Token Information 
+        [DllImport("Advapi32.dll", SetLastError = true)]
+        // GetTokenInformation will capture the details which is asked in TokenInformationClass
+        // here we are using Elevated 
+        public static extern bool GetTokenInformation(
+            IntPtr TokenHandle, // give the process token here which was captured in the OpenProcessToken
+            TOKEN_INFORMATION_CLASS TokenInformationClass, // the enum is taken here 
+            IntPtr TokenInformation, // Saves the information of TokenInformation capture by the TokenHandle
+            int TokenInformationLenght, // saves the lenght of the TokenInformation , it would be dynamic, depends on the TokenInformationClass used above
+            ref int ReturnLenght // output the lenght to be used later 
+
+            );
+        static void Main(string[] args)
+        {
+            IntPtr tokenHandle = IntPtr.Zero;
+            int elevatedLength = 0;
+            //Get the Current Process Handle which returns a number 
+            IntPtr processHandle = Process.GetCurrentProcess().Handle;
+            bool res = OpenProcessToken(processHandle, TOKEN_QUERY, ref tokenHandle /* token handle gets the token after the process is opened */);
+            // First we need to get the Token Information Lenght the class we are trying that is elevation 
+            var res1 = GetTokenInformation(tokenHandle, // from previous process function we get the tokenHandle
+                TOKEN_INFORMATION_CLASS.TokenElevation,  // Wanted the length of the TokenLevation which is DWORD as per microsoft document
+                IntPtr.Zero, // for now it would pointing to Zero since we do not have lenght yet
+                elevatedLength, // since we do not know the elevtedLenght so we put to 0 initally or for first call
+                ref elevatedLength // the lenght is saved here, ref means the output to put
+
+                );
+
+            // allocate the space , elevatedLength has the lenght of the TokenInformation
+            var tokenInformation = Marshal.AllocHGlobal(elevatedLength);
+            // We are calling the GetTokenInformation so need not worry,
+            // here we are calling to gather the information of the token since we got the length
+            // so use them to capture the tokeninformation class
+            bool res2 = GetTokenInformation(tokenHandle,
+                TOKEN_INFORMATION_CLASS.TokenElevation,
+                tokenInformation, // here we are mentioning the tokenInformation which has a empty space,
+                                  // because of previous memory allocation by Marsha
+                elevatedLength, // lenght
+                ref elevatedLength // waits the lenght
+                );
+            
+              //Converting the tokenInformation to TOKEN_ELEVATION structure mentioned before
+         TOKEN_ELEVATION te = (TOKEN_ELEVATION)Marshal.PtrToStructure(tokenInformation, typeof(TOKEN_ELEVATION));
+            Console.WriteLine("Elevated={0}",te.TokenIsElevated);
+
+        }
+    }
+}
